@@ -1,9 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { SendHorizonal } from "lucide-react";
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { searchRetrievalTool } from "@/tools/search";
+import { calculatorTool } from "@/tools/math";
+import { toolsByName } from "@/tools";
 
 interface IMessage {
   role: "human" | "system" | "model";
@@ -12,12 +15,13 @@ interface IMessage {
 
 export default function Chat() {
   const [messages, setMessages] = useState<IMessage[] | null>(null);
-  const [model, setModel] = useState<ChatGoogleGenerativeAI>(
+  const [model, setModel] = useState(
     new ChatGoogleGenerativeAI({
-      model: "gemini-2.0-flash-exp",
+      model: "gemini-1.5-flash",
       temperature: 0,
+      maxRetries: 0,
       apiKey: process.env.NEXT_PUBLIC_GOOGLE_API_KEY,
-    })
+    }).bindTools([calculatorTool])
   );
   const [isChatLoading, setIsChatLoading] = useState(false);
 
@@ -50,15 +54,32 @@ export default function Chat() {
 
     console.log("Model response:", modelResponse);
 
-    const modelResponseContent = modelResponse.content;
+    const toolCalls = modelResponse.tool_calls;
 
-    console.log("Model response content:", modelResponseContent);
+    if (toolCalls && toolCalls.length > 0) {
+      for (const toolCall of toolCalls) {
+        console.log("Tool call:", toolCall);
+        const selectedTool =
+          toolsByName[toolCall.name as keyof typeof toolsByName];
+        console.log("Selected tool:", selectedTool);
+        const toolMessage = await selectedTool.invoke(toolCall);
+        console.log("Tool message:", toolMessage);
+        newMessages.push({
+          role: "model",
+          content: toolMessage,
+        });
+      }
+    } else {
+      const modelResponseContent = modelResponse.content;
 
-    // add the response to the messages array
-    newMessages.push({
-      role: "model",
-      content: modelResponseContent.toString(),
-    });
+      console.log("Model response content:", modelResponseContent);
+
+      // add the response to the messages array
+      newMessages.push({
+        role: "model",
+        content: modelResponseContent.toString(),
+      });
+    }
 
     setMessages(newMessages);
     setIsChatLoading(false);
